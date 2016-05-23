@@ -1,0 +1,50 @@
+(load "rsa/rsa")
+(import-all "rsa")
+(load "base64/base64")
+(import-all "base64")
+(load "cli/cli")
+(import-all "cli")
+
+(define (mangle arg)
+  (define (internal str acc)
+    (if (null? str)
+      acc
+      (internal (list:drop 70 str) (++ acc (list:take 70 str) #\newline))))
+  (let ((str (base64:encode (->string arg))))
+    (list->string (internal str []))))
+
+(define (keygen args)
+  (let ((prefix (++ (get-from args "path" ".") "/.ssh/"))
+        (key (rsa:key-gen (get-from args "size" 2048))))
+    (begin
+      (system "mkdir" (list "-p" prefix))
+      (with-output-file (++ prefix "id_rsa.pub")
+                        (lambda (f)
+                          (begin
+                            (display "zepto_rsa " f)
+                            (display (mangle (rsa:key-n key)) f)
+                            (display "|" f)
+                            (display (mangle (rsa:key-e key)) f)
+                            (if (in? args "comment")
+                              (write (++ " " (args "comment")) f)))))
+      (with-output-file (++ prefix "id_rsa")
+                        (lambda (f)
+                          (begin
+                            (write "-----BEGIN ZRSA PRIVATE KEY-----" f)
+                            (display (mangle (rsa:key-n key)) f)
+                            (display "|" f)
+                            (display (mangle (rsa:key-e key)) f)
+                            (display "|" f)
+                            (display (mangle (rsa:key-d key)) f)
+                            (write "-----END ZRSA PRIVATE KEY-----" f)))))))
+
+(define options #{:options #{"path" #{:short "p"
+                                      :help "where to store the keys"}
+                             "size" #{:short "s"
+                                      :type :integer
+                                      :help "how big the key should be"}
+                             "comment" #{:short "c"
+                                         :help "an optional comment"}}})
+
+(define env (cli:create (list (cli:command "generate" keygen options))))
+(cli:play env #{:name "keygen"})
